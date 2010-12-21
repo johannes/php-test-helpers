@@ -16,4 +16,4 @@ Hello World (%sdummy.inc)
 Hello World (/this/better/not/exists/else/it/is/weird.php)
 dummy!
 
-Parse error: syntax error, unexpected T_STRING in /home/johannes/src/php-test-helpers/tests/dummy.inc on line 1
+Parse error: syntax error, unexpected T_STRING in %sdummy.inc on line 1
