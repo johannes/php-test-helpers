@@ -160,6 +160,25 @@ Class Posing has the following restrictions
 
 These restrictions are not enforced by `ext/test_helpers` because the extension is only intended to ease the development of unit tests (for legacy software systems that cannot be refactored to use Dependency Injection).
 
+### Intercepting zend_compile_file calls ###
+
+The `set_compile_file_overload()` function can be used to intercept attepts by the Zend Engine to compile PHP scripts to opcodes. It can be used to register a callback, which will be called before the actualcompile routine is called. It receives the file name as parameter and may return a string. The string's text value willbe used as script code instead of the requested file:
+
+    <?php
+    funtion compile_file($filename)
+    {
+        return '<?php "Hello World!" ?>';
+    }
+
+    set_compile_file_overload("compile_file");
+
+    include('dummy.php');
+    ?>
+
+    Hello world!
+
+Note that combining this with other modules overloading the compile_file hook, like APC,might have unexpected results.
+
 ### Renaming Functions ###
 
 The `rename_function()` function can be used to rename function:

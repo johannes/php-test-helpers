@@ -69,6 +69,7 @@ typedef opcode_handler_t user_opcode_handler_t;
 
 static user_opcode_handler_t old_new_handler = NULL;
 static user_opcode_handler_t old_exit_handler = NULL;
+static zend_op_array *(*orig_compile_file)(zend_file_handle *file_handle, int type TSRMLS_DC) = NULL;
 static int test_helpers_module_initialized = 0;
 
 typedef struct {
@@ -79,6 +80,7 @@ typedef struct {
 ZEND_BEGIN_MODULE_GLOBALS(test_helpers)
 	user_handler_t new_handler;
 	user_handler_t exit_handler;
+	user_handler_t compile_file;
 ZEND_END_MODULE_GLOBALS(test_helpers)
 
 ZEND_DECLARE_MODULE_GLOBALS(test_helpers)
@@ -227,6 +229,52 @@ static int pth_exit_handler(ZEND_OPCODE_HANDLER_ARGS) /* {{{ */
 }
 /* }}} */
 
+static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC) /* {{{ */
+{
+	zval *filename;
+	zval *retval;
+
+	if (THG(compile_file).fci.function_name == NULL) {
+		return orig_compile_file(file_handle, type TSRMLS_CC);
+	}
+
+	MAKE_STD_ZVAL(filename);
+	ZVAL_STRING(filename, file_handle->opened_path ? file_handle->opened_path : file_handle->filename, 1);
+	zend_fcall_info_argn(&THG(compile_file).fci TSRMLS_CC, 1, &filename);
+	zend_fcall_info_call(&THG(compile_file).fci, &THG(compile_file).fcc, &retval, NULL TSRMLS_CC);
+	zend_fcall_info_args_clear(&THG(compile_file).fci, 1);
+
+	if (Z_TYPE_P(retval) == IS_STRING) {
+		zend_op_array *op;
+		zend_file_handle new_file_handle;
+		new_file_handle.type = ZEND_HANDLE_MAPPED;
+		new_file_handle.filename = file_handle->filename;
+		new_file_handle.opened_path = file_handle->opened_path;
+		new_file_handle.handle.stream.mmap.buf = Z_STRVAL_P(retval);
+		new_file_handle.handle.stream.mmap.len = Z_STRLEN_P(retval);
+		new_file_handle.handle.stream.mmap.pos = 0;
+		new_file_handle.handle.stream.mmap.map = 0;
+		new_file_handle.handle.stream.mmap.old_handle = NULL;
+		new_file_handle.handle.stream.mmap.old_closer = NULL;
+		new_file_handle.handle.stream.closer = NULL;
+		new_file_handle.free_filename = 0;
+
+		op = orig_compile_file(&new_file_handle, type TSRMLS_CC);
+
+		zval_ptr_dtor(&filename);
+		zval_ptr_dtor(&retval);
+
+		zend_destroy_file_handle(file_handle TSRMLS_CC);
+		return op;
+	}
+
+	zval_ptr_dtor(&filename);
+	zval_ptr_dtor(&retval);
+
+	return orig_compile_file(file_handle, type TSRMLS_CC);
+}
+/* }}} */
+
 static void php_test_helpers_init_globals(zend_test_helpers_globals *globals) /* {{{ */
 {
 	globals->new_handler.fci.function_name = NULL;
@@ -255,6 +303,9 @@ static PHP_MINIT_FUNCTION(test_helpers)
 	old_exit_handler = zend_get_user_opcode_handler(ZEND_EXIT);
 	zend_set_user_opcode_handler(ZEND_EXIT, pth_exit_handler);
 
+	orig_compile_file = zend_compile_file;
+	zend_compile_file = pth_compile_file;
+
 	test_helpers_module_initialized = 1;
 
 	return SUCCESS;
@@ -267,6 +318,7 @@ static PHP_RSHUTDOWN_FUNCTION(test_helpers)
 {
 	test_helpers_free_handler(&THG(new_handler).fci TSRMLS_CC);
 	test_helpers_free_handler(&THG(exit_handler).fci TSRMLS_CC);
+	test_helpers_free_handler(&THG(compile_file).fci TSRMLS_CC);
 	return SUCCESS;
 }
 /* }}} */
@@ -300,7 +352,7 @@ static void overload_helper(user_opcode_handler_t op_handler, int opcode, user_h
 		return;
 	}
 
-	if (op_handler != zend_get_user_opcode_handler(opcode)) {
+	if (opcode && op_handler != zend_get_user_opcode_handler(opcode)) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "A conflicting extension was detected. Make sure to load test_helpers as zend_extension after other extensions");
 	}
 
@@ -359,6 +411,14 @@ static PHP_FUNCTION(unset_new_overload)
 static PHP_FUNCTION(unset_exit_overload)
 {
 	unset_overload_helper(&THG(exit_handler), INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
+/* }}} */
+
+/* {{{ proto bool unset_compile_file_overload()
+   Remove the current compile_file handler */
+static PHP_FUNCTION(unset_compile_file_overload)
+{
+	unset_overload_helper(&THG(compile_file), INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 /* }}} */
 
@@ -435,19 +495,22 @@ PHP_FUNCTION(rename_function)
 }
 /* }}} */
 
+/* {{{ proto bool set_compile_file_overload(callback cb)
+   Sets a callback for overloading compile_file */
+static PHP_FUNCTION(set_compile_file_overload)
+{
+	overload_helper(NULL, 0, &THG(compile_file), INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
+/* }}} */
+
 /* {{{ arginfo */
 /* {{{ unset_new_overload */
-ZEND_BEGIN_ARG_INFO(arginfo_unset_new_overload, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_void, 0)
 ZEND_END_ARG_INFO()
 /* }}} */
 
-/* {{{ unset_exit_overload */
-ZEND_BEGIN_ARG_INFO(arginfo_unset_exit_overload, 0)
-ZEND_END_ARG_INFO()
-/* }}} */
-
-/* {{{ set_new_overload */
-ZEND_BEGIN_ARG_INFO(arginfo_set_new_overload, 0)
+/* {{{ callback_only */
+ZEND_BEGIN_ARG_INFO(arginfo_callback_only, 0)
 	ZEND_ARG_INFO(0, callback)
 ZEND_END_ARG_INFO()
 /* }}} */
@@ -459,21 +522,17 @@ ZEND_BEGIN_ARG_INFO(arginfo_rename_function, 0)
 ZEND_END_ARG_INFO()
 /* }}} */
 
-/* {{{ set_exit_overload */
-ZEND_BEGIN_ARG_INFO(arginfo_set_exit_overload, 0)
-	ZEND_ARG_INFO(0, "callback")
-ZEND_END_ARG_INFO()
-/* }}} */
-
 /* }}} */
 
 /* {{{ test_helpers_functions[]
  */
 static const zend_function_entry test_helpers_functions[] = {
-	PHP_FE(unset_new_overload, arginfo_unset_new_overload)
-	PHP_FE(set_new_overload, arginfo_set_new_overload)
-	PHP_FE(unset_exit_overload, arginfo_unset_exit_overload)
-	PHP_FE(set_exit_overload, arginfo_set_exit_overload)
+	PHP_FE(unset_new_overload, arginfo_void)
+	PHP_FE(set_new_overload, arginfo_callback_only)
+	PHP_FE(unset_exit_overload, arginfo_void)
+	PHP_FE(set_exit_overload, arginfo_callback_only)
+	PHP_FE(unset_compile_file_overload, arginfo_void)
+	PHP_FE(set_compile_file_overload, arginfo_callback_only)
 	PHP_FE(rename_function, arginfo_rename_function)
 	{NULL, NULL, NULL}
 };
