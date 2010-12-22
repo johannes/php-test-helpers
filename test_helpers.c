@@ -279,9 +279,11 @@ static void php_test_helpers_init_globals(zend_test_helpers_globals *globals) /*
 {
 	globals->new_handler.fci.function_name = NULL;
 	globals->exit_handler.fci.function_name = NULL;
+	globals->compile_file.fci.function_name = NULL;
 #if PHP_VERSION_ID >= 50300
 	globals->new_handler.fci.object_ptr = NULL;
 	globals->exit_handler.fci.object_ptr = NULL;
+	globals->compile_file.fci.object_ptr = NULL;
 #endif
 }
 /* }}} */
