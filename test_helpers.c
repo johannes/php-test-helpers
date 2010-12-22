@@ -567,7 +567,7 @@ static int test_helpers_zend_startup(zend_extension *extension) /* {{{ */
 #endif
 ZEND_EXTENSION();
 
-zend_extension zend_extension_entry = {
+zend_extension zend_extension_entry = { /* {{{ */
 	"test_helpers",
 	TEST_HELPERS_VERSION,
 	"Johannes Schlueter, Scott MacVicar, Sebastian Bergmann",
@@ -586,6 +586,7 @@ zend_extension zend_extension_entry = {
 	NULL,           /* op_array_dtor_func_t */
 	STANDARD_ZEND_EXTENSION_PROPERTIES
 };
+/* }}} */
 
 /*
  * Local variables:
