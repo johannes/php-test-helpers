@@ -337,7 +337,7 @@ static zend_op_array *pth_compile_string(zval *source_string, char *filename TSR
 	zend_fcall_info_args_clear(&THG(compile_string).fci, 1);
 
 	convert_to_string(retval);
-	op = orig_compile_string(retval, filename);
+	op = orig_compile_string(retval, filename TSRMLS_CC);
 
 	zval_ptr_dtor(&source);
 	zval_ptr_dtor(&z_filename);
