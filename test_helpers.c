@@ -70,6 +70,7 @@ typedef opcode_handler_t user_opcode_handler_t;
 static user_opcode_handler_t old_new_handler = NULL;
 static user_opcode_handler_t old_exit_handler = NULL;
 static zend_op_array *(*orig_compile_file)(zend_file_handle *file_handle, int type TSRMLS_DC) = NULL;
+static zend_op_array *(*orig_compile_string)(zval *source_string, char *filename TSRMLS_DC);
 static int test_helpers_module_initialized = 0;
 
 typedef struct {
@@ -81,6 +82,7 @@ ZEND_BEGIN_MODULE_GLOBALS(test_helpers)
 	user_handler_t new_handler;
 	user_handler_t exit_handler;
 	user_handler_t compile_file;
+	user_handler_t compile_string;
 ZEND_END_MODULE_GLOBALS(test_helpers)
 
 ZEND_DECLARE_MODULE_GLOBALS(test_helpers)
@@ -313,15 +315,49 @@ static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type T
 }
 /* }}} */
 
+static zend_op_array *pth_compile_string(zval *source_string, char *filename TSRMLS_DC) /* {{{ */
+{
+	zend_op_array *op;
+	zval *z_filename;
+	zval *source;
+	zval *retval;
+
+	if (THG(compile_string).fci.function_name == NULL) {
+		return orig_compile_string(source_string, filename TSRMLS_CC);
+	}
+
+	MAKE_STD_ZVAL(source);
+	ZVAL_ZVAL(source, source_string, 1, 0);
+
+	MAKE_STD_ZVAL(z_filename);
+	ZVAL_STRING(z_filename, filename, 1);
+
+	zend_fcall_info_argn(&THG(compile_string).fci TSRMLS_CC, 2, &source, &z_filename);
+	zend_fcall_info_call(&THG(compile_string).fci, &THG(compile_string).fcc, &retval, NULL TSRMLS_CC);
+	zend_fcall_info_args_clear(&THG(compile_string).fci, 1);
+
+	convert_to_string(retval);
+	op = orig_compile_string(retval, filename);
+
+	zval_ptr_dtor(&source);
+	zval_ptr_dtor(&z_filename);
+	zval_ptr_dtor(&retval);
+
+	return op;
+}
+/* }}} */
+
 static void php_test_helpers_init_globals(zend_test_helpers_globals *globals) /* {{{ */
 {
 	globals->new_handler.fci.function_name = NULL;
 	globals->exit_handler.fci.function_name = NULL;
 	globals->compile_file.fci.function_name = NULL;
+	globals->compile_string.fci.function_name = NULL;
 #if PHP_VERSION_ID >= 50300
 	globals->new_handler.fci.object_ptr = NULL;
 	globals->exit_handler.fci.object_ptr = NULL;
 	globals->compile_file.fci.object_ptr = NULL;
+	globals->compile_string.fci.object_ptr = NULL;
 #endif
 }
 /* }}} */
@@ -346,6 +382,9 @@ static PHP_MINIT_FUNCTION(test_helpers)
 	orig_compile_file = zend_compile_file;
 	zend_compile_file = pth_compile_file;
 
+	orig_compile_string = zend_compile_string;
+	zend_compile_string = pth_compile_string;
+
 	test_helpers_module_initialized = 1;
 
 	return SUCCESS;
@@ -359,6 +398,7 @@ static PHP_RSHUTDOWN_FUNCTION(test_helpers)
 	test_helpers_free_handler(&THG(new_handler).fci TSRMLS_CC);
 	test_helpers_free_handler(&THG(exit_handler).fci TSRMLS_CC);
 	test_helpers_free_handler(&THG(compile_file).fci TSRMLS_CC);
+	test_helpers_free_handler(&THG(compile_string).fci TSRMLS_CC);
 	return SUCCESS;
 }
 /* }}} */
@@ -462,6 +502,14 @@ static PHP_FUNCTION(unset_compile_file_overload)
 }
 /* }}} */
 
+/* {{{ proto bool unset_compile_string_overload()
+   Remove the current compile_String handler */
+static PHP_FUNCTION(unset_compile_string_overload)
+{
+	unset_overload_helper(&THG(compile_string), INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
+/* }}} */
+
 static int pth_rename_function(HashTable *table, char *orig, int orig_len, char *new, int new_len TSRMLS_DC) /* {{{ */
 {
 	zend_function *func, *dummy_func;
@@ -543,6 +591,14 @@ static PHP_FUNCTION(set_compile_file_overload)
 }
 /* }}} */
 
+/* {{{ proto bool set_compile_string_overload(callback cb)
+   Set a callback for overloading compile_stirng */
+static PHP_FUNCTION(set_compile_string_overload)
+{
+	overload_helper(NULL, 0, &THG(compile_string), INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
+/* }}} */
+
 /* {{{ arginfo */
 /* {{{ unset_new_overload */
 ZEND_BEGIN_ARG_INFO(arginfo_void, 0)
@@ -573,6 +629,8 @@ static const zend_function_entry test_helpers_functions[] = {
 	PHP_FE(set_exit_overload, arginfo_callback_only)
 	PHP_FE(unset_compile_file_overload, arginfo_void)
 	PHP_FE(set_compile_file_overload, arginfo_callback_only)
+	PHP_FE(unset_compile_string_overload, arginfo_void)
+	PHP_FE(set_compile_string_overload, arginfo_callback_only)
 	PHP_FE(rename_function, arginfo_rename_function)
 	{NULL, NULL, NULL}
 };
