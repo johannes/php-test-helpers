@@ -299,7 +299,7 @@ static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type T
 		new_handle.handle.stream.closer = pth_zend_stream_closer;
 		new_handle.type = ZEND_HANDLE_STREAM;
 
-		//zend_destroy_file_handle(file_handle);
+		zend_destroy_file_handle(file_handle);
 		file_handle = &new_handle;
 	} else if (Z_TYPE_P(retval) != IS_BOOL || Z_LVAL_P(retval) != 1) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The compile callback should return either a string or stream with code to compile or boolean true to use the original code. Original code will be compiled");
