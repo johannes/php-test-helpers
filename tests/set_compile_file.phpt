@@ -19,7 +19,7 @@ Hello World (%sdummy.inc)
 Hello World (/this/better/not/exists/else/it/is/weird.php)
 dummy!
 
-Warning: include(): The compile callback should return either a string with code to compile or boolean true to use the original code. Original code will be compiled in %s on line %d
+Warning: include(): The compile callback should return either a string or stream with code to compile or boolean true to use the original code. Original code will be compiled in %s on line %d
 dummy!
 
 Parse error: syntax error, unexpected T_STRING in %sdummy.inc on line 1

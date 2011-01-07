@@ -177,6 +177,23 @@ The `set_compile_file_overload()` function can be used to intercept attepts by t
 
     Hello world!
 
+Alternatively the callback might return an opened stream:
+
+    <?php
+    function compile_file($filename)
+    {
+        return fopen('data:text/plain,Hello world!', 'r');
+    }
+
+    set_compile_file_overload('compile_file');
+
+    include('dummy.php');
+    ?>
+
+    Hello world!
+
+If the callback returns the boolean value of `true` the original requested file will be used.
+
 Note that combining this with other modules overloading the compile_file hook, like APC,might have unexpected results.
 
 ### Renaming Functions ###

@@ -229,10 +229,27 @@ static int pth_exit_handler(ZEND_OPCODE_HANDLER_ARGS) /* {{{ */
 }
 /* }}} */
 
+static size_t pth_zend_stream_fsizer(void *handle TSRMLS_DC) /* {{{ */
+{
+	php_stream_statbuf ssb;
+	if (php_stream_stat((php_stream*)handle, &ssb) == 0) {
+		return ssb.sb.st_size;
+	}
+	return 0;
+}
+/* }}} */
+
+static void pth_zend_stream_closer(void *handle TSRMLS_DC) /* {{{ */
+{
+	php_stream_close((php_stream*)handle);
+}
+/* }}} */
+
 static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC) /* {{{ */
 {
 	zval *filename;
 	zval *retval;
+	zend_op_array *op_array;
 
 	if (THG(compile_file).fci.function_name == NULL) {
 		return orig_compile_file(file_handle, type TSRMLS_CC);
@@ -266,16 +283,33 @@ static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type T
 
 		zend_destroy_file_handle(file_handle TSRMLS_CC);
 		return op;
+	} else if (Z_TYPE_P(retval) == IS_RESOURCE) {
+		php_stream *stream;
+		zend_file_handle new_handle;
+		/*php_stream_from_zval(stream, &retval);*/
+		ZEND_FETCH_RESOURCE2_NO_RETURN(stream, php_stream *, &retval, -1, "stream", php_file_le_stream(), php_file_le_pstream());
+
+		new_handle.filename = file_handle->filename;
+		new_handle.opened_path = estrdup(stream->orig_path);
+		new_handle.free_filename = 0;
+		new_handle.handle.stream.handle = stream;
+		new_handle.handle.stream.reader = (zend_stream_reader_t)_php_stream_read;
+		new_handle.handle.stream.fsizer = pth_zend_stream_fsizer;
+		new_handle.handle.stream.isatty = 0;
+		new_handle.handle.stream.closer = pth_zend_stream_closer;
+		new_handle.type = ZEND_HANDLE_STREAM;
+
+		//zend_destroy_file_handle(file_handle);
+		file_handle = &new_handle;
+	} else if (Z_TYPE_P(retval) != IS_BOOL || Z_LVAL_P(retval) != 1) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The compile callback should return either a string or stream with code to compile or boolean true to use the original code. Original code will be compiled");
 	}
 
-	if (Z_TYPE_P(retval) != IS_BOOL || Z_LVAL_P(retval) != 1) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The compile callback should return either a string with code to compile or boolean true to use the original code. Original code will be compiled");
-	}
-
+	op_array = orig_compile_file(file_handle, type TSRMLS_CC);
 	zval_ptr_dtor(&filename);
 	zval_ptr_dtor(&retval);
 
-	return orig_compile_file(file_handle, type TSRMLS_CC);
+	return op_array;
 }
 /* }}} */
 
