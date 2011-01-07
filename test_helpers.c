@@ -268,6 +268,10 @@ static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type T
 		return op;
 	}
 
+	if (Z_TYPE_P(retval) != IS_BOOL || Z_LVAL_P(retval) != 1) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The compile callback should return either a string with code to compile or boolean true to use the original code. Original code will be compiled");
+	}
+
 	zval_ptr_dtor(&filename);
 	zval_ptr_dtor(&retval);
 
