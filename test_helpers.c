@@ -301,7 +301,7 @@ static zend_op_array *pth_compile_file(zend_file_handle *file_handle, int type T
 		new_handle.handle.stream.closer = pth_zend_stream_closer;
 		new_handle.type = ZEND_HANDLE_STREAM;
 
-		zend_destroy_file_handle(file_handle);
+		zend_destroy_file_handle(file_handle TSRMLS_CC);
 		file_handle = &new_handle;
 	} else if (Z_TYPE_P(retval) != IS_BOOL || Z_LVAL_P(retval) != 1) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The compile callback should return either a string or stream with code to compile or boolean true to use the original code. Original code will be compiled");
@@ -395,10 +395,10 @@ static PHP_MINIT_FUNCTION(test_helpers)
  */
 static PHP_RSHUTDOWN_FUNCTION(test_helpers)
 {
-	test_helpers_free_handler(&THG(new_handler).fci TSRMLS_CC);
-	test_helpers_free_handler(&THG(exit_handler).fci TSRMLS_CC);
-	test_helpers_free_handler(&THG(compile_file).fci TSRMLS_CC);
-	test_helpers_free_handler(&THG(compile_string).fci TSRMLS_CC);
+	test_helpers_free_handler(&THG(new_handler).fci);
+	test_helpers_free_handler(&THG(exit_handler).fci);
+	test_helpers_free_handler(&THG(compile_file).fci);
+	test_helpers_free_handler(&THG(compile_string).fci);
 	return SUCCESS;
 }
 /* }}} */
@@ -436,7 +436,7 @@ static void overload_helper(user_opcode_handler_t op_handler, int opcode, user_h
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "A conflicting extension was detected. Make sure to load test_helpers as zend_extension after other extensions");
 	}
 
-	test_helpers_free_handler(&handler->fci TSRMLS_CC);
+	test_helpers_free_handler(&handler->fci);
 
 	handler->fci = fci;
 	handler->fcc = fcc;
@@ -473,7 +473,7 @@ static void unset_overload_helper(user_handler_t *handler, INTERNAL_FUNCTION_PAR
 		return;
 	}
 
-	test_helpers_free_handler(&handler->fci TSRMLS_CC);
+	test_helpers_free_handler(&handler->fci);
 	RETURN_TRUE;
 }
 /* }}} */
