@@ -101,6 +101,127 @@ ZEND_GET_MODULE(test_helpers)
 #define EX(element) execute_data->element
 #define EX_T(offset) (*(temp_variable *)((char *) EX(Ts) + offset))
 
+
+#ifdef ZTS
+
+#define SMART_STR_USE_REALLOC 1
+
+#include "main/SAPI.h"
+#include "ext/standard/php_var.h"
+#include "ext/standard/php_smart_str.h"
+
+typedef struct {
+	char **sources;
+	smart_str user_data_in;
+	smart_str user_data_out;
+} pth_req_data;
+
+void *pth_worker_thread(void *arg)
+{
+	zval z_user_data;
+	zval *z_user_data_p;
+
+	char *script;
+	pth_req_data *req = (pth_req_data*)arg;
+	TSRMLS_FETCH();
+
+	SG(options) |= SAPI_OPTION_NO_CHDIR;
+	SG(request_info).argc = 0;
+	SG(request_info).argv = NULL;
+
+	if (php_request_startup(TSRMLS_C) == FAILURE) {
+		php_module_shutdown(TSRMLS_C);
+		return NULL;
+	}
+
+	SG(headers_sent) = 1;
+	SG(request_info).no_headers = 1;
+	
+	z_user_data_p = &z_user_data;
+
+	if (req->user_data_in.len) {
+		php_unserialize_data_t var_hash;
+
+		INIT_ZVAL(z_user_data);
+		PHP_VAR_UNSERIALIZE_INIT(var_hash);
+		if (!php_var_unserialize(&z_user_data_p, (const unsigned char **)&req->user_data_in.c, (const unsigned char *)req->user_data_in.len, &var_hash TSRMLS_CC)) {
+			PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
+			php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Error unserializing user data");
+		}
+		PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
+	} else {
+		array_init(z_user_data_p);
+	}
+	ZEND_SET_GLOBAL_VAR_WITH_LENGTH("_FOO", sizeof("_FOO"), z_user_data_p, 2, 0);
+
+	zend_first_try {
+		while (script = *req->sources++) {
+			if (script[0] != '<') {
+				zend_file_handle file_handle;
+				file_handle.type = ZEND_HANDLE_FILENAME;
+				file_handle.filename = script;
+				file_handle.handle.fp = NULL;
+				file_handle.opened_path = NULL;
+				file_handle.free_filename = 0;
+
+				/*retval = */php_execute_script(&file_handle TSRMLS_CC);
+			}
+		}
+	} zend_end_try();
+
+	zval **z_user_data_pp;
+	if (zend_hash_find(&EG(symbol_table), "_FOO", sizeof("_FOO"), (void **) &z_user_data_pp) == SUCCESS) {
+		php_serialize_data_t var_hash;
+		smart_str buf = {0};
+
+		PHP_VAR_SERIALIZE_INIT(var_hash);
+		php_var_serialize(&req->user_data_out, z_user_data_pp, &var_hash TSRMLS_CC);
+		PHP_VAR_SERIALIZE_DESTROY(var_hash);
+	}
+
+	php_request_shutdown((void *) 0);
+
+	return req;
+}
+
+PHP_FUNCTION(pth_worker)
+{
+	pthread_t thread;
+	php_unserialize_data_t var_hash;
+	char *scripts[] = { NULL, NULL };
+	pth_req_data data = { scripts, 0, NULL };
+	zval *z_user_data = NULL;
+	int script_len;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|a", &data.sources[0], &script_len, &z_user_data) == FAILURE) {
+		return;
+	}
+
+	if (z_user_data) {
+		php_serialize_data_t un_var_hash;
+		PHP_VAR_SERIALIZE_INIT(un_var_hash);
+		php_var_serialize(&data.user_data_in, &z_user_data, &un_var_hash TSRMLS_CC);
+		PHP_VAR_SERIALIZE_DESTROY(un_var_hash);
+	}
+
+	pthread_create(&thread, NULL, pth_worker_thread, &data);
+	pthread_join(thread, NULL);
+
+	PHP_VAR_UNSERIALIZE_INIT(var_hash);
+	if (!php_var_unserialize(&return_value, (const unsigned char **)&data.user_data_out.c, (const unsigned char *)data.user_data_out.len, &var_hash TSRMLS_CC)) {
+		php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Error unserializing user data");
+	}
+	PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
+
+	if (data.user_data_in.len) {
+		smart_str_free(&data.user_data_in);
+	}
+	if (data.user_data_out.len) {
+		smart_str_free(&data.user_data_out);
+	}
+}
+#endif
+
 static zval *pth_get_zval_ptr(znode *node, zval **freeval, zend_execute_data *execute_data TSRMLS_DC) /* {{{ */
 {
 	*freeval = NULL;
@@ -632,6 +753,9 @@ static const zend_function_entry test_helpers_functions[] = {
 	PHP_FE(unset_compile_string_overload, arginfo_void)
 	PHP_FE(set_compile_string_overload, arginfo_callback_only)
 	PHP_FE(rename_function, arginfo_rename_function)
+#ifdef ZTS
+	PHP_FE(pth_worker, NULL)
+#endif
 	{NULL, NULL, NULL}
 };
 /* }}} */
