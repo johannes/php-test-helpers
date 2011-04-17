@@ -513,15 +513,10 @@ static int pth_restore_internal_functions() /* {{{ */
 				php_error_docref(NULL TSRMLS_CC, E_WARNING, "%s() failed to restore %s into EG(function_table)", get_active_function_name(TSRMLS_C), key);
 				return FAILURE;
 			}
-			
-			// All done, cleanup
-			if (zend_hash_del(THG(modified_internal_functions), key, key_len) == FAILURE)
-			{
-				php_error_docref(NULL TSRMLS_CC, E_WARNING, "%s() failed to remove %s from THG(modified_internal_functions)", get_active_function_name(TSRMLS_C), key);
-				return FAILURE;
-			}
 		}
 	}
+
+	zend_hash_clean(THG(modified_internal_functions));
 	
 	return SUCCESS;
 
